@@ -95,30 +95,59 @@ class SagaStageSpec extends FreeSpec {
       }
 
       "can do fizz-buzz" in {
-        val
-      }
-//    }
-//
-//    "with two stages" - {
-//      "consumes events" in {
-//        val stage1 = SagaFlow.fromFlows(Flow[Int],Flow[Int])
-//        val stage2 = SagaFlow.fromFlows(Flow[Int],Flow[Int])
-//        val saga = stage1.atop(stage2).toFlow
-//
-//        forAll(
-//          arbitrary[List[Int]] → "inputs",
-//          genTakeCount → "numToTake"
-//        ) { (input, takeCount) ⇒
-//          val (_, result) = saga.take(takeCount).runWith(Source(input), Sink.seq)
-//          result.futureValue shouldBe input.take(takeCount)
-//        }
-//      }
 
-//      "fails when the first stage fails" in {
-//        val fizz = new Exception("Fizz")
-//
-//        val (pub, sub) = SagaFlow.fromFlows(failing,Flow[Int]).toFlow.runWith(TestSource.probe[Int], TestSink.probe[Int])
-//      }
+        val fizzyOrBuzzy = Seq.newBuilder[Int]
+        val fizzBuzzStage =
+          SagaFlow.fromFlows(
+            Flow[Int].map(n ⇒ if (n % 15 == 0) throw FizzBuzz(n) else n),
+            Flow[Int].map(n ⇒ fizzyOrBuzzy += n)
+          )
+
+        val fizzy = Seq.newBuilder[Int]
+        val buzzStage =
+          SagaFlow.fromFlows(
+            Flow[Int].map(n ⇒ if (n % 5 == 0) throw Buzz(n) else n),
+            Flow[Int].map(n ⇒ fizzy += n)
+          )
+
+        val empty = Seq.newBuilder[Int]
+        val fizzStage =
+          SagaFlow.fromFlows(
+            Flow[Int].map(n ⇒ if (n % 3 == 0) throw Fizz(n) else n),
+            Flow[Int].map(n ⇒ empty += n)
+          )
+
+        val fizzBuzzSaga =
+          fizzBuzzStage.atop(buzzStage).atop(fizzStage)
+
+        val result =
+          Source(1.to(15))
+            .via(fizzBuzzSaga.tryFlow)
+            .runWith(Sink.seq)
+
+        result.futureValue shouldBe
+          List(
+            Success(1),
+            Success(2),
+            Failure(Fizz(3)),
+            Success(4),
+            Failure(Buzz(5)),
+            Failure(Fizz(6)),
+            Success(7),
+            Success(8),
+            Failure(Fizz(9)),
+            Failure(Buzz(10)),
+            Success(11),
+            Failure(Fizz(12)),
+            Success(13),
+            Success(14),
+            Failure(FizzBuzz(15))
+          )
+
+        empty.result() shouldBe List()
+        fizzy.result() shouldBe List(3, 6, 9, 12)
+        fizzyOrBuzzy.result() shouldBe List(3, 5, 6, 9, 10, 12)
+      }
     }
   }
 
