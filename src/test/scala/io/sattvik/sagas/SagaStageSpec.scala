@@ -15,10 +15,13 @@ import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.Gen
 import org.scalatest.concurrent.ScalaFutures._
 
+import scala.util.{Failure, Success, Try}
+
 class SagaStageSpec extends FreeSpec {
   implicit val system = ActorSystem("SagaStageSpec")
+  implicit val ec = system.dispatcher
   implicit val m = ActorMaterializer()
-  implicit val generatorDrivenConfig = PropertyCheckConfig(minSuccessful = 200, maxSize = 25, maxDiscarded = 1)
+  implicit val generatorDrivenConfig = PropertyCheckConfig(minSuccessful = 250, maxSize = 25)
 
   def keepAll[M1,M2,M3,M4](a: M1, b: M2, c: M3, d: M4): (M1, M2, M3, M4) = (a, b, c, d)
 
@@ -65,15 +68,22 @@ class SagaStageSpec extends FreeSpec {
         }
       }
 
-      "handles a failed stage" ignore {
-        val failing = Flow[Int].map(_ ⇒ throw new Exception("BOOOM!"))
+      "fails when the first stage fails" in {
+        val boom = new Exception("BOOM!")
+        val failing = Flow[Int].map(_ ⇒ throw boom)
         val (pub, sub) = SagaFlow.fromFlows(failing,Flow[Int]).toFlow.runWith(TestSource.probe[Int], TestSink.probe[Int])
 
         pub.sendNext(1)
-        pub.sendComplete()
+        sub.expectSubscriptionAndError(boom)
+      }
 
-        sub.requestNext(1)
-        sub.expectComplete()
+      "consumes events which end in a failure" in {
+        val saga = SagaFlow.fromFlows(Flow[Int].map(10 / _),Flow[Int]).toFlow
+
+        forAll(Gen.listOf(Gen.posNum[Int]).map(_ :+ 0).suchThat(l ⇒ l.nonEmpty && l.last == 0) → "inputs") { input ⇒
+          val (_, result) = saga.runWith(Source(input), Sink.seq)
+          result.recover { case _: ArithmeticException ⇒  Seq(-1) }.futureValue shouldBe Seq(-1)
+        }
       }
     }
 
@@ -91,6 +101,12 @@ class SagaStageSpec extends FreeSpec {
           result.futureValue shouldBe input.take(takeCount)
         }
       }
+
+//      "fails when the first stage fails" in {
+//        val fizz = new Exception("Fizz")
+//
+//        val (pub, sub) = SagaFlow.fromFlows(failing,Flow[Int]).toFlow.runWith(TestSource.probe[Int], TestSink.probe[Int])
+//      }
     }
   }
 }

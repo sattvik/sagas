@@ -34,77 +34,77 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
       }
 
       setHandler(in, new InHandler {
-        override def onPush(): Unit = state.onGotInput()
-        override def onUpstreamFinish(): Unit = state.onUpstreamCompleted()
+        override def onPush(): Unit = state.onInPush()
+        override def onUpstreamFinish(): Unit = state.onInFinished()
         override def onUpstreamFailure(ex: Throwable): Unit = state.onInFailed(ex)
       })
 
       setHandler(forwardIn, new OutHandler {
-        override def onPull(): Unit = state.onForwardIsReady()
+        override def onPull(): Unit = state.onForwardInPull()
         override def onDownstreamFinish(): Unit = state.onForwardInFinished()
       })
 
       setHandler(forwardOut, new InHandler {
         override def onPush(): Unit = state.onForwardOutPush()
-        override def onUpstreamFinish(): Unit = state.onForwardFlowCompleted()
+        override def onUpstreamFinish(): Unit = state.onForwardOutFinished()
         override def onUpstreamFailure(ex: Throwable): Unit = state.onForwardOutFailed(ex)
       })
 
       setHandler(out, new OutHandler {
-        override def onPull(): Unit = state.onDownstreamDemand()
-        override def onDownstreamFinish(): Unit = state.onDownstreamCancelled()
+        override def onPull(): Unit = state.onOutPull()
+        override def onDownstreamFinish(): Unit = state.onOutFinished()
       })
 
       setHandler(downstreamRollback, new InHandler {
         override def onPush(): Unit = state.onDownstreamRollbackPush()
-        override def onUpstreamFinish(): Unit = state.onDownstreamCompleted()
+        override def onUpstreamFinish(): Unit = state.onDownstreamRollbackFinished()
         override def onUpstreamFailure(ex: Throwable): Unit = state.onDownstreamRollbackFailed(ex)
       })
 
       setHandler(rollbackIn, new OutHandler {
         override def onPull(): Unit = state.onRollbackInPull()
-        override def onDownstreamFinish(): Unit = state.onRollbackFlowCancelled()
+        override def onDownstreamFinish(): Unit = state.onRollbackInFinished()
       })
 
       setHandler(rollbackOut, new InHandler {
         override def onPush(): Unit = state.onRollbackOutPush()
-        override def onUpstreamFinish(): Unit = state.onRollbackFlowCompleted()
+        override def onUpstreamFinish(): Unit = state.onRollbackOutFinished()
         override def onUpstreamFailure(ex: Throwable): Unit = state.onRollbackOutFailed(ex)
       })
 
       setHandler(upstreamRollback, new OutHandler {
-        override def onPull(): Unit = state.onUpstreamIsReadyToRollback()
-        override def onDownstreamFinish(): Unit = state.onDownstreamCancelled()
+        override def onPull(): Unit = state.onUpstreamRollbackPull()
+        override def onDownstreamFinish(): Unit = state.onUpstreamRollbackFinished()
       })
 
       private sealed trait State {
-        def onGotInput(): Unit = notAllowed("onGotInput")
-        def onUpstreamCompleted(): Unit = notAllowed("onUpstreamCompleted")
+        def onInPush(): Unit = notAllowed("onInPush")
+        def onInFinished(): Unit = notAllowed("onInFinished")
         def onInFailed(ex: Throwable): Unit = notAllowed("onInFailed")
 
-        def onForwardIsReady(): Unit = notAllowed("onForwardIsReady")
+        def onForwardInPull(): Unit = notAllowed("onForwardInPull")
         def onForwardInFinished(): Unit = notAllowed("onForwardInFinished")
 
         def onForwardOutPush(): Unit = notAllowed("onForwardOutPush")
-        def onForwardFlowCompleted(): Unit = notAllowed("onForwardFlowCompleted")
+        def onForwardOutFinished(): Unit = notAllowed("onForwardOutFinished")
         def onForwardOutFailed(ex: Throwable): Unit = notAllowed("onForwardOutFailed")
 
-        def onDownstreamDemand(): Unit = notAllowed("onDownstreamDemand")
-        def onDownstreamDone(): Unit = notAllowed("onDownstreamDone")
+        def onOutPull(): Unit = notAllowed("onOutPull")
+        def onOutFinished(): Unit = notAllowed("onOutFinished")
 
         def onDownstreamRollbackPush(): Unit = notAllowed("onDownstreamRollbackPush")
-        def onDownstreamCompleted(): Unit = notAllowed("onDownstreamCompleted")
+        def onDownstreamRollbackFinished(): Unit = notAllowed("onDownstreamRollbackFinished")
         def onDownstreamRollbackFailed(ex: Throwable): Unit = notAllowed("onDownstreamRollbackFailed")
 
         def onRollbackInPull(): Unit = notAllowed("onRollbackInPull")
-        def onRollbackFlowCancelled(): Unit = notAllowed("onRollbackFlowCancelled")
+        def onRollbackInFinished(): Unit = notAllowed("onRollbackInFinished")
 
         def onRollbackOutPush(): Unit = notAllowed("onRollbackOutPush")
-        def onRollbackFlowCompleted(): Unit = notAllowed("onRollbackFlowCompleted")
+        def onRollbackOutFinished(): Unit = notAllowed("onRollbackOutFinished")
         def onRollbackOutFailed(ex: Throwable): Unit = notAllowed("onRollbackOutFailed")
 
-        def onUpstreamIsReadyToRollback(): Unit = notAllowed("onUpstreamIsReadyToRollback")
-        def onDownstreamCancelled(): Unit = notAllowed("onDownstreamCancelled")
+        def onUpstreamRollbackPull(): Unit = notAllowed("onUpstreamRollbackPull")
+        def onUpstreamRollbackFinished(): Unit = notAllowed("onUpstreamRollbackFinished")
 
         protected def assertInvariants(): Unit = {}
 
@@ -128,30 +128,30 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(rollbackOut, PushedEmpty)
         }
 
-        override def onDownstreamDemand(): Unit = {
+        override def onOutPull(): Unit = {
           assertStatus(in, PushedEmpty)
           assertStatus(upstreamRollback, Pushed)
 
           pull(forwardOut)
-          transition(GettingInput, "onDownstreamDemand")
+          transition(GettingInput, "onOutPull")
         } ensuring Pulled(forwardOut)
 
-        override def onDownstreamCancelled(): Unit = {
+        override def onOutFinished(): Unit = {
           assertStatus(in, PushedEmpty)
           assertStatus(upstreamRollback, Closed)
           assertInvariants()
 
           cancel(rollbackOut)
-          transition(ShuttingDown, "onDownstreamCancelled")
+          transition(ShuttingDown, "onOutFinished")
         } ensuring ClosedEmpty(rollbackOut)
 
-        override def onUpstreamCompleted(): Unit = {
+        override def onInFinished(): Unit = {
           assertStatus(in, ClosedEmpty)
           assertStatus(upstreamRollback, Pushed)
           assertInvariants()
 
           complete(forwardIn)
-          transition(ShuttingDown, "onUpstreamCompleted")
+          transition(ShuttingDown, "onInFinished")
         } ensuring Closed(forwardIn)
       }
 
@@ -167,38 +167,38 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(upstreamRollback, Pushed, Pulled)
         }
 
-        override def onForwardIsReady(): Unit = {
+        override def onForwardInPull(): Unit = {
           assertStatus(in, PushedEmpty)
           assertInvariants()
 
           pull(in)
-          transition(this, "onForwardIsReady")
+          transition(this, "onForwardInPull")
         } ensuring Pulled(in)
 
-        override def onGotInput(): Unit = {
+        override def onInPush(): Unit = {
           assertStatus(in, Pushed)
           assertInvariants()
 
           val item = grab(in)
           push(forwardIn, item)
-          transition(DoingWork(item), s"onGotInput($item)")
+          transition(DoingWork(item), s"onInPush($item)")
         } ensuring Pushed(forwardIn)
 
-        override def onUpstreamIsReadyToRollback(): Unit = {
+        override def onUpstreamRollbackPull(): Unit = {
           assertStatus(in, PushedEmpty, Pulled)
           assertStatus(upstreamRollback, Pulled)
 
           // nothing to do here.  We do not pull downstream until we have
           // finished processing an input
-          transition(this, "onUpstreamIsReadyToRollback")
+          transition(this, "onUpstreamRollbackPull")
         }
 
-        override def onUpstreamCompleted(): Unit = {
+        override def onInFinished(): Unit = {
           assertStatus(in, ClosedEmpty)
           assertInvariants()
 
           complete(forwardIn)
-          transition(ShuttingDown, "onUpstreamCompleted")
+          transition(ShuttingDown, "onInFinished")
         } ensuring Closed(forwardIn)
       }
 
@@ -220,7 +220,7 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           transition(AwaitingDownstreamResult(item), s"onForwardOutPush($item)")
         } ensuring(Pulled(downstreamRollback) && Pushed(out) && PushedEmpty(forwardOut))
 
-        override def onUpstreamIsReadyToRollback(): Unit = {
+        override def onUpstreamRollbackPull(): Unit = {
           assertStatus(in, PushedEmpty)
           assertStatus(forwardIn, Pushed)
           assertStatus(forwardOut, Pulled)
@@ -231,9 +231,70 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(rollbackOut, PushedEmpty)
           assertStatus(upstreamRollback, Pulled)
 
-          transition(this, s"onUpstreamIsReadyToRollback()")
+          transition(this, s"onUpstreamRollbackPull()")
+        }
+
+        /** Occurs when the flow fails. */
+        override def onForwardInFinished(): Unit = {
+          transition(FlowIsFailing(None), s"onForwardInFinished()")
+        }
+
+        /** Occurs when the flow fails. */
+        override def onForwardOutFailed(ex: Throwable): Unit = {
+          transition(FlowIsFailing(Some(ex)), s"onForwardOutFailed($ex)")
         }
       }
+
+      private case class FlowIsFailing(ex: Option[Throwable]) extends State {
+        override def onForwardInFinished(): Unit = {
+          if (Pulled(upstreamRollback) && ClosedEmpty(forwardOut)) {
+            push(upstreamRollback, ex)
+            transition(InvokingUpstreamRollbacks(ex.get), s"onForwardInFinished()")
+          } else {
+            transition(this, "onForwardInFinished")
+          }
+          logState()
+        }
+
+        override def onForwardOutFailed(ex: Throwable): Unit = {
+          if (Pulled(upstreamRollback) && Closed(forwardIn)) {
+            push(upstreamRollback, Some(ex))
+            transition(InvokingUpstreamRollbacks(ex), s"onForwardOutFailed($ex)")
+          } else {
+            transition(FlowIsFailing(Some(ex)), "onForwardOutFinished")
+          }
+          logState()
+        }
+
+        override def onUpstreamRollbackPull(): Unit = {
+          if (ex.isDefined && Closed(forwardIn) && ClosedEmpty(forwardOut)) {
+            push(upstreamRollback, ex)
+            transition(InvokingUpstreamRollbacks(ex.get), s"onUpstreamRollbackPull()")
+          } else {
+            transition(this, "onUpstreamRollbackPull")
+          }
+          logState()
+        }
+      }
+
+      private case class InvokingUpstreamRollbacks(ex: Throwable) extends State {
+        override def onUpstreamRollbackFinished(): Unit = {
+          cancel(rollbackOut)
+          transition(this, "onUpstreamRollbackFinished")
+        }
+
+        override def onRollbackInFinished(): Unit = {
+          cancel(downstreamRollback)
+          transition(this, "onRollbackInFinished")
+        }
+
+        override def onOutFinished(): Unit = {
+          cancel(in)
+          transition(Failed(ex), "onOutFinished")
+        }
+      }
+
+      private case class Failed(ex: Throwable) extends State
 
       private case class AwaitingDownstreamResult(item: Out) extends State {
         override def onDownstreamRollbackPush(): Unit = {
@@ -265,7 +326,7 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           }
         }
 
-        override def onUpstreamIsReadyToRollback(): Unit = {
+        override def onUpstreamRollbackPull(): Unit = {
           assertStatus(in, PushedEmpty)
           assertStatus(forwardIn, Pushed)
           assertStatus(forwardOut, PushedEmpty)
@@ -279,14 +340,14 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
       }
 
       private case class AwaitingUpstreamRollback(maybeError: Option[Throwable]) extends State {
-        override def onUpstreamIsReadyToRollback(): Unit = {
+        override def onUpstreamRollbackPull(): Unit = {
           push(upstreamRollback, maybeError)
-          transition(Idle, "onUpstreamIsReadyToRollback")
+          transition(Idle, "onUpstreamRollbackPull")
         }
       }
 
       private case object ShuttingDown extends State {
-        override def onForwardFlowCompleted(): Unit = {
+        override def onForwardOutFinished(): Unit = {
           assertStatus(in, ClosedEmpty)
           assertStatus(forwardIn, Closed)
           assertStatus(forwardOut, ClosedEmpty)
@@ -298,10 +359,10 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(upstreamRollback, Pushed)
 
           complete(out)
-          transition(this, "onForwardFlowCompleted")
+          transition(this, "onForwardOutFinished")
         } ensuring Closed(out)
 
-        override def onDownstreamCompleted(): Unit = {
+        override def onDownstreamRollbackFinished(): Unit = {
           assertStatus(in, ClosedEmpty)
           assertStatus(forwardIn, Closed)
           assertStatus(forwardOut, ClosedEmpty)
@@ -313,10 +374,10 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(upstreamRollback, Pushed)
 
           complete(rollbackIn)
-          transition(this, "onDownstreamCompleted")
+          transition(this, "onDownstreamRollbackFinished")
         } ensuring Closed(rollbackIn)
 
-        override def onRollbackFlowCompleted(): Unit = {
+        override def onRollbackOutFinished(): Unit = {
           assertStatus(in, ClosedEmpty)
           assertStatus(forwardIn, Closed)
           assertStatus(forwardOut, ClosedEmpty)
@@ -328,10 +389,10 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(upstreamRollback, Pushed)
 
           complete(upstreamRollback)
-          transition(ShutDown, "onRollbackFlowCompleted")
+          transition(ShutDown, "onRollbackOutFinished")
         } ensuring Closed(upstreamRollback)
 
-        override def onRollbackFlowCancelled(): Unit = {
+        override def onRollbackInFinished(): Unit = {
           assertStatus(in, PushedEmpty)
           assertStatus(forwardIn, Pushed)
           assertStatus(forwardOut, PushedEmpty)
@@ -343,10 +404,10 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(upstreamRollback, Closed)
 
           cancel(downstreamRollback)
-          transition(this, "onRollbackFlowCancelled")
+          transition(this, "onRollbackInFinished")
         } ensuring ClosedEmpty(downstreamRollback)
 
-        override def onDownstreamCancelled(): Unit = {
+        override def onOutFinished(): Unit = {
           assertStatus(in, PushedEmpty)
           assertStatus(forwardIn, Pushed)
           assertStatus(forwardOut, PushedEmpty)
@@ -358,7 +419,7 @@ private[sagas] class SagaStage[-In,+Out] extends GraphStage[SagaStageShape[In @u
           assertStatus(upstreamRollback, Closed)
 
           cancel(forwardOut)
-          transition(this, "onDownstreamCancelled")
+          transition(this, "onOutFinished")
         } ensuring ClosedEmpty(forwardOut)
 
         override def onForwardInFinished(): Unit = {

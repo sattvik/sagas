@@ -11,15 +11,6 @@ import scala.util.{Failure, Success, Try}
 object SagaFlow {
   def fromFlows[In, Out](forward: Graph[FlowShape[In, Out], _],
                          rollback: Graph[FlowShape[Out, _], _]): Graph[SagaShape[In, Out], NotUsed] = {
-    val forwardWithRecovery =
-      Flow.fromGraph(forward)
-          .map[Try[Out]](Success(_))
-          .recoverWithRetries(5, {
-            case t ⇒ Source.single(Failure(t))
-          })
-          .withAttributes(ActorAttributes.supervisionStrategy(Supervision.resumingDecider))
-
-
     GraphDSL.create(forward, rollback)(Keep.none) { implicit b ⇒ (fwd, rb) ⇒
       import GraphDSL.Implicits._
 
