@@ -2,7 +2,7 @@ package io.sattvik.sagas
 
 import akka.NotUsed
 import akka.event.Logging
-import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Source}
+import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Keep, Source, Zip, ZipWith2}
 import akka.stream._
 import io.sattvik.sagas.impl.{SagaStage, SagaToFlowStage}
 
@@ -10,16 +10,48 @@ import scala.util.{Failure, Success, Try}
 
 object SagaFlow {
   def fromFlows[In, Out](forward: Graph[FlowShape[In, Out], _],
-                         rollback: Graph[FlowShape[Out, _], _]): Graph[SagaShape[In, Out], NotUsed] = {
-    GraphDSL.create(forward, rollback)(Keep.none) { implicit b ⇒ (fwd, rb) ⇒
+                         rollback: Graph[FlowShape[Out, Any], _]): Graph[SagaShape[In, Out], NotUsed] = {
+
+    val forwardTryFlow: Flow[Try[In],Try[Out],NotUsed] =
+      Flow[Try[In]]
+        .flatMapConcat[Try[Out], NotUsed] {
+          case Success(in) ⇒
+            Source.single(in)
+                .via(forward)
+                .map(Success(_))
+                .recover { case t ⇒ Failure[Out](t) }
+          case Failure(t) ⇒
+            Source.single(Failure[Out](t))
+        }
+
+    val fullRollbackFlow: Flow[(Try[Out],Option[Throwable]), Option[Throwable], NotUsed] =
+      Flow[(Try[Out],Option[Throwable])]
+        .flatMapConcat {
+          case (Failure(_), ex) ⇒
+            // we failed, so just pass the exception back
+            Source.single(ex)
+
+          case (Success(_), None) ⇒
+            // we succeeded, but there was no error, so just pass none back
+            Source.single(None)
+          case (Success(s), ex @ Some(_)) ⇒
+            // we succeeded, but upstream failed, so rollback
+            Source.single(s)
+                .via(rollback)
+                .map(_ ⇒ ex)
+        }
+
+    GraphDSL.create(forwardTryFlow, fullRollbackFlow)(Keep.none) { implicit b ⇒ (fwd, rb) ⇒
       import GraphDSL.Implicits._
 
-      val stage = b.add(new SagaStage[In, Out])
+      val outBroadcast = b.add(Broadcast[Try[Out]](2, eagerCancel = false))
+      val rollbackIn = b.add(Zip[Try[Out],Option[Throwable]])
 
-      stage.forwardIn ~> fwd ~> stage.forwardOut
-      stage.rollbackIn ~> rb ~> stage.rollbackOut
+      fwd.out ~> outBroadcast.in
+      outBroadcast.out(0) ~> rollbackIn.in0
+      rollbackIn.out ~> rb.in
 
-      SagaShape(stage.in, stage.out, stage.downstreamRollback, stage.upstreamRollback)
+      SagaShape(fwd.in, outBroadcast.out(1), rollbackIn.in1, rb.out)
     }
   }
 
@@ -36,18 +68,30 @@ object SagaFlow {
           }
       }
 
-      def toFlow: Flow[In,Out, NotUsed] = {
+      def tryFlow: Flow[In,Try[Out], NotUsed] = {
         val g =
           GraphDSL.create(theGraph) { implicit b ⇒ (g) ⇒
             import GraphDSL.Implicits._
 
-            val sagas = b.add(new SagaToFlowStage[In, Out])
-            sagas.intoFlow ~> g.in
-            g.out ~> sagas.fromFlow
-            sagas.intoRollback ~> g.downstreamRollback
-            g.upstreamRollback ~> sagas.fromRollback
+            val splitter = b.add(new Broadcast[Try[Out]](2, eagerCancel = false))
 
-            FlowShape(sagas.in, sagas.out)
+            g.out ~> splitter
+            val rollbackValue =
+              splitter.out(0).map {
+                case Success(_) ⇒ None
+                case Failure(t) ⇒ Some(t)
+              }
+            rollbackValue ~> g.downstreamRollback
+
+            val outputCollector = b.add(new ZipWith2[Try[Out],Option[Throwable],Try[Out]](Keep.left))
+
+            splitter.out(1) ~> outputCollector.in0
+            g.upstreamRollback ~> outputCollector.in1
+
+            val inTransform = b.add(Flow[In].map(Success(_)))
+            inTransform.out ~> g.in
+
+            FlowShape(inTransform.in, outputCollector.out)
           }
         Flow.fromGraph(g)
       }
