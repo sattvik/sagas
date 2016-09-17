@@ -14,12 +14,12 @@ object SagaFlow {
 
     val forwardTryFlow: Flow[Try[In],Try[Out],NotUsed] =
       Flow[Try[In]]
-        .flatMapConcat[Try[Out], NotUsed] {
+        .flatMapConcat {
           case Success(in) ⇒
             Source.single(in)
-                .via(forward)
-                .map(Success(_))
-                .recover { case t ⇒ Failure[Out](t) }
+              .via(forward)
+              .map(Success(_))
+              .recover { case t ⇒ Failure[Out](t) }
           case Failure(t) ⇒
             Source.single(Failure[Out](t))
         }
