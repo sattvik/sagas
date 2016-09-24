@@ -6,8 +6,7 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
-private[sagas] class DefaultSagaFuture[+T](override val future: Future[T],
-                                           withRollback: Future[(T, () ⇒ Future[Unit])]) extends SagaFuture[T] {
+private[sagas] class DefaultSagaFuture[+T](withRollback: Future[(T, () ⇒ Future[Unit])]) extends SagaFuture[T] {
   override def map[S](f: (T) ⇒ S, rb: S ⇒ () ⇒ Future[Unit])
                      (implicit executionContext: ExecutionContext): SagaFuture[S] = {
     val result = Promise[S]()
@@ -34,8 +33,17 @@ private[sagas] class DefaultSagaFuture[+T](override val future: Future[T],
         result.failure(ex)
         resultWithRollback.failure(ex)
     }
-    new DefaultSagaFuture[S](result.future, resultWithRollback.future)
+    new DefaultSagaFuture[S](resultWithRollback.future)
   }
 
-  override def flatMap[S](f: (T, () ⇒ Future[Unit]) ⇒ SagaFuture[S])(implicit executionContext: ExecutionContext): SagaFuture[S] = ???
+  override def flatMap[S](f: ((T, () ⇒ Future[Unit])) ⇒ SagaFuture[S])(implicit executionContext: ExecutionContext): SagaFuture[S] = {
+    withRollback onComplete {
+      case Success(x) ⇒
+        f(x)
+      case Failure(t) ⇒
+
+
+
+    }
+  }
 }

@@ -1,16 +1,14 @@
 package io.sattvik.sagas
 
-import io.sattvik.sagas.immpl.DefaultSagaFuture
+import io.sattvik.sagas.impl.DefaultSagaFuture
 
 import scala.concurrent.{ExecutionContext, Future}
 
 trait SagaFuture[+T] {
-  def future: Future[T]
-
   def map[S](f: T ⇒ S, rb: S ⇒ () ⇒ Future[Unit])
             (implicit executionContext: ExecutionContext): SagaFuture[S]
 
-  def flatMap[S](f: (T, () ⇒ Future[Unit]) ⇒ SagaFuture[S])
+  def flatMap[S](f: ((T, () ⇒ Future[Unit])) ⇒ SagaFuture[S])
                 (implicit executionContext: ExecutionContext): SagaFuture[S]
 }
 
@@ -20,6 +18,6 @@ object SagaFuture {
               (implicit executor: ExecutionContext): SagaFuture[T] = {
     val forwardValueWithRollback =
       forward.map(t ⇒ (t, createRollback(t)))
-    new DefaultSagaFuture[T](forward, forwardValueWithRollback)
+    new DefaultSagaFuture[T](forwardValueWithRollback)
   }
 }
