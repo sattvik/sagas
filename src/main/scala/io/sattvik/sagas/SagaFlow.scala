@@ -1,16 +1,14 @@
 package io.sattvik.sagas
 
 import akka.NotUsed
-import akka.event.Logging
-import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Keep, Source, Zip, ZipWith2}
 import akka.stream._
-import io.sattvik.sagas.impl.{SagaStage, SagaToFlowStage}
+import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Keep, Source, Zip, ZipWith2}
 
 import scala.util.{Failure, Success, Try}
 
 object SagaFlow {
   def fromFlows[In, Out](forward: Graph[FlowShape[In, Out], _],
-                         rollback: Graph[FlowShape[Out, Any], _]): Graph[SagaShape[In, Out], NotUsed] = {
+                         rollback: Graph[FlowShape[Out, Any], _]): Graph[SagaStageShape[In, Out], NotUsed] = {
 
     val forwardTryFlow: Flow[Try[In],Try[Out],NotUsed] =
       Flow[Try[In]]
@@ -51,20 +49,20 @@ object SagaFlow {
       outBroadcast.out(0) ~> rollbackIn.in0
       rollbackIn.out ~> rb.in
 
-      SagaShape(fwd.in, outBroadcast.out(1), rollbackIn.in1, rb.out)
+      SagaStageShape(fwd.in, outBroadcast.out(1), rollbackIn.in1, rb.out)
     }
   }
 
   object Implicits {
-    implicit class SagaFlowOps[In,Out](val theGraph: Graph[SagaShape[In, Out], NotUsed]) extends AnyVal {
-      def atop[Out2](next: Graph[SagaShape[Out,Out2], NotUsed]): Graph[SagaShape[In,Out2],NotUsed] = {
+    implicit class SagaFlowOps[In,Out](val theGraph: Graph[SagaStageShape[In, Out], NotUsed]) extends AnyVal {
+      def atop[Out2](next: Graph[SagaStageShape[Out,Out2], NotUsed]): Graph[SagaStageShape[In,Out2],NotUsed] = {
           GraphDSL.create(theGraph, next)(Keep.none) { implicit b ⇒ (g1, g2) ⇒
             import GraphDSL.Implicits._
 
             g1.out ~> g2.in
             g2.upstreamRollback ~> g1.downstreamRollback
 
-            SagaShape(g1.in, g2.out, g2.downstreamRollback, g1.upstreamRollback)
+            SagaStageShape(g1.in, g2.out, g2.downstreamRollback, g1.upstreamRollback)
           }
       }
 
